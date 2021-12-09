@@ -16,13 +16,13 @@ pub struct FnSig {
 
 #[derive(Debug)]
 pub enum Ty {
-    /// t @ e  a type refined by a singleton index
-    Refine(BaseTy, Expr),   
-    /// t{a:p}
+    /// t @ e   : a type refined by a singleton index
+    Refine(BaseTy, Expr),
+    /// t{a:p}  : a type refineed by a predicate
     Exists(BaseTy, Pred),
-    /// ref<l>
+    /// ref<l>  : a reference to a location
     MutRef(Name),
-    /// T 
+    /// T       : a type parameter
     Param(ParamTy),
 }
 
