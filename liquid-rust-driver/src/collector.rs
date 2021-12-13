@@ -3,12 +3,58 @@ use liquid_rust_syntax::{ast::FnSig, parse_fn_sig, ParseErrorKind};
 use rustc_ast::{tokenstream::TokenStream, AttrKind, Attribute, MacArgs};
 use rustc_hash::FxHashMap;
 use rustc_hir::{
-    def_id::LocalDefId, itemlikevisit::ItemLikeVisitor, ForeignItem, ImplItem, ImplItemKind, Item,
+    def_id::{LocalDefId, DefId}, itemlikevisit::ItemLikeVisitor, ForeignItem, ImplItem, ImplItemKind, Item,
     ItemKind, TraitItem,
 };
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 use rustc_span::Span;
+
+pub(crate) struct DefCollector<'tcx, 'a> {
+    tcx: TyCtxt<'tcx>,
+    defs: Vec<DefId>,
+    sess: &'a Session,
+    error_reported: bool,
+}
+
+impl<'tcx, 'a> DefCollector<'tcx, 'a> {
+    pub(crate) fn collect(
+        tcx: TyCtxt<'tcx>, 
+        sess:&'a Session
+    ) -> Result<Vec<DefId>, ErrorReported> {
+        let mut collector = Self {
+            tcx,
+            sess,
+            defs: vec!(),
+            error_reported: false,
+        };
+
+        tcx.hir().visit_all_item_likes(&mut collector);
+
+        if collector.error_reported {
+            Err(ErrorReported)
+        } else {
+            Ok(collector.defs)
+        }
+    }
+
+    fn gather_def_ids(body: &Body) -> Vec<DefId> {
+        let mut res = vec!();
+        for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
+            if let Some(term) = &bb_data.terminator {
+                match term.kind {
+                    TerminatorKind::Call{ func, .. } => res.push(func),
+                    _ => ()
+                }
+            }
+        };
+        res
+    }
+
+    fn collect_def_ids(&mut self, hir_id: rustc_hir::HirId, def_id: LocalDefId) {
+
+    }
+}
 
 pub(crate) struct SpecCollector<'tcx, 'a> {
     tcx: TyCtxt<'tcx>,
@@ -99,24 +145,47 @@ impl<'tcx, 'a> SpecCollector<'tcx, 'a> {
         self.error_reported = true;
         self.sess.span_err(span, message);
     }
+
+    fn parse_annotations_fun(&mut self, hir_id: rustc_hir::HirId, def_id: LocalDefId) {
+        let attrs = self.tcx.hir().attrs(hir_id);
+        self.parse_annotations(def_id, attrs);
+    }
+
+
+}
+
+impl<'hir> ItemLikeVisitor<'hir> for DefCollector<'_, '_> {
+    fn visit_item(&mut self, item: &'hir Item<'hir>) {
+        if let ItemKind::Fn(..) = item.kind {
+            self.collect_def_ids(item.hir_id(), item.def_id);
+        }
+    }
+
+    fn visit_impl_item(&mut self, item: &'hir ImplItem<'hir>) {
+        if let ImplItemKind::Fn(..) = &item.kind {
+            self.collect_def_ids(item.hir_id(), item.def_id);
+        }
+    }
+
+    fn visit_trait_item(&mut self, _trait_item: &'hir TraitItem<'hir>) {}
+
+    fn visit_foreign_item(&mut self, _foreign_item: &'hir ForeignItem<'hir>) {}
 }
 
 impl<'hir> ItemLikeVisitor<'hir> for SpecCollector<'_, '_> {
     fn visit_item(&mut self, item: &'hir Item<'hir>) {
         if let ItemKind::Fn(..) = item.kind {
-            let hir_id = item.hir_id();
-            let attrs = self.tcx.hir().attrs(hir_id);
-            self.parse_annotations(item.def_id, attrs);
+            self.parse_annotations_fun(item.hir_id(), item.def_id);
         }
     }
 
-    fn visit_trait_item(&mut self, _trait_item: &'hir TraitItem<'hir>) {}
     fn visit_impl_item(&mut self, item: &'hir ImplItem<'hir>) {
         if let ImplItemKind::Fn(..) = &item.kind {
-            let hir_id = item.hir_id();
-            let attrs = self.tcx.hir().attrs(hir_id);
-            self.parse_annotations(item.def_id, attrs);
+            self.parse_annotations_fun(item.hir_id(), item.def_id);
         }
     }
+    
+    fn visit_trait_item(&mut self, _trait_item: &'hir TraitItem<'hir>) {}
+    
     fn visit_foreign_item(&mut self, _foreign_item: &'hir ForeignItem<'hir>) {}
 }

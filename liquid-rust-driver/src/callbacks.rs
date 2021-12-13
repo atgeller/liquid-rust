@@ -56,6 +56,7 @@ fn check_crate(tcx: TyCtxt, sess: &Session) -> Result<FixpointResult, ErrorRepor
         })
         .try_collect_exhaust()?;
 
+
     let global_env = GlobalEnv::new(tcx, fn_sigs);
     global_env
         .specs

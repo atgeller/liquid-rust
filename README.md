@@ -3,8 +3,8 @@
 
 ## Requirements
 
-* [rustup](https://rustup.rs/)
-* [liquid-fixpoint](https://github.com/ucsd-progsys/liquid-fixpoint)
+* [`rustup`](https://rustup.rs/)
+* [`liquid-fixpoint`](https://github.com/ucsd-progsys/liquid-fixpoint)
 * [z3](https://github.com/Z3Prover/z3)
 
 Be sure that the `liquid-fixpoint` and `z3` executables are in your $PATH.
@@ -20,9 +20,9 @@ git clone https://github.com/liquid-rust/liquid-rust
 cd liquid-rust
 ```
 
-To build the source you need a nightly version of rustc.
+To build the source you need a nightly version of `rustc`.
 We pin the version using a [toolchain file](/rust-toolchain) (more info [here](https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file)).
-If you are using rustup, no special action is needed as it should install the correct rustc version and components based on the information on that file.
+If you are using `rustup`, no special action is needed as it should install the correct `rustc` version and components based on the information on that file.
 
 Finally, build the project using `cargo`
 
@@ -35,15 +35,15 @@ cargo build
 ### liquid-rust binary
 
 You can run the liquid-rust binary with `cargo run`.
-The liquid-rust binary is a [rustc driver](https://rustc-dev-guide.rust-lang.org/rustc-driver.html?highlight=driver#the-rustc-driver-and-interface) (similar to how clippy works) meaning it uses rustc as a library to "drive" compilation performing aditional analysis along the way.
-In practice this means you can use liquid-rust as you would use rustc.
-For example, the following command checks the file `test.rs` (everythins after the `--` are the arguments to the liquid-rust binary)
+The liquid-rust binary is a [`rustc` driver](https://rustc-dev-guide.rust-lang.org/rustc-driver.html?highlight=driver#the-rustc-driver-and-interface) (similar to how clippy works) meaning it uses `rustc` as a library to "drive" compilation performing additional analysis along the way.
+In practice this means you can use liquid-rust as you would use `rustc`.
+For example, the following command checks the file `test.rs` (everything after the `--` are the arguments to the liquid-rust binary)
 
 ```bash
 cargo run -- path/to/test.rs
 ```
 
-The liquid-rust binary accepts the same flags than rustc.
+The liquid-rust binary accepts the same flags than `rustc`.
 You could for example check a file as a library instead of a binary like so
 
 ```bash
@@ -57,7 +57,7 @@ not yet supported.
 
 ### A tiny example
 
-The following example declares a funcion `inc` that returns a integer greater than the input.
+The following example declares a function `inc` that returns a integer greater than the input.
 We use the nightly feature `register_tool` to register the `lr` tool in order to add refinement annotations to functions.
 
 ```rust

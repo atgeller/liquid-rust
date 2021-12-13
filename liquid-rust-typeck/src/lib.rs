@@ -19,6 +19,8 @@ mod pretty;
 pub mod ty;
 mod tyenv;
 
+use std::fmt::Debug;
+
 use crate::{
     constraint_builder::{ConstraintBuilder, Cursor},
     inference::InferCtxt,
