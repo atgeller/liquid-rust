@@ -8,9 +8,14 @@ use lalrpop_util::ParseError;
 
 grammar<F>(mk_span: &F) where F: Fn(Location, Location) -> Span;
 
+FnName : Option<ast::Ident> = {
+    "fn" <name: Ident> => Some(name),
+    "fn"               => None,
+}
+
 pub FnSig: ast::FnSig = {
     <lo:@L>
-    "fn"
+    <name: FnName>
     <generics:Generics>
     "(" <requires:(<Env> ";")?> <args:Comma<Ty>> ")"
     "->"
@@ -19,7 +24,7 @@ pub FnSig: ast::FnSig = {
     => {
         let requires = requires.unwrap_or_else(|| vec![]);
         let ensures = ensures.unwrap_or_else(|| vec![]);
-        ast::FnSig { generics, requires, args, ret, ensures, span: mk_span(lo, hi) }
+        ast::FnSig { name, generics, requires, args, ret, ensures, span: mk_span(lo, hi) }
     }
 }
 

@@ -4,6 +4,7 @@ use rustc_span::{Span, Symbol};
 
 #[derive(Debug)]
 pub struct FnSig {
+    pub name : Option<Ident>,
     pub generics: Generics,
     pub requires: Vec<(Ident, Ty)>,
     pub args: Vec<Ty>,

@@ -30,7 +30,6 @@ fn sysroot() -> Option<String> {
 }
 
 pub fn run_compiler_result(mut args: Vec<String>) -> Result<liquid_rust_fixpoint::FixpointResult, rustc_errors::ErrorReported> {
-    println!("Here come the raw args {:?}", args);
     // Add the sysroot path to the arguments.
     args.push("--sysroot".into());
     args.push(sysroot().expect("Liquid Rust requires rustup to be built."));
@@ -41,7 +40,7 @@ pub fn run_compiler_result(mut args: Vec<String>) -> Result<liquid_rust_fixpoint
     // Run the rust compiler with the arguments.
     let mut callbacks = LiquidCallbacks::default();
     let res = RunCompiler::new(&args, &mut callbacks).run();
-    println!("RUN COMPILER: args = {:?}, result = {:?}", args, callbacks.result);
+    // println!("RUN COMPILER: args = {:?}, result = {:?}", args, callbacks.result);
     match res {
         Ok(_) => Ok(callbacks.result),
         Err(e) => Err(e),

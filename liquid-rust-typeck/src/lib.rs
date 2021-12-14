@@ -63,6 +63,7 @@ pub struct Checker<'a, 'tcx> {
     ensures: Vec<(Region, Ty)>,
 }
 
+
 impl Checker<'_, '_> {
     pub fn check<'tcx>(
         global_env: &GlobalEnv<'tcx>,

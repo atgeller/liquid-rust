@@ -1,59 +1,19 @@
 use liquid_rust_common::errors::ErrorReported;
-use liquid_rust_syntax::{ast::FnSig, parse_fn_sig, ParseErrorKind};
+use liquid_rust_syntax::{ast::{FnSig, Ident}, parse_fn_sig, ParseErrorKind};
 use rustc_ast::{tokenstream::TokenStream, AttrKind, Attribute, MacArgs};
 use rustc_hash::FxHashMap;
 use rustc_hir::{
-    def_id::{LocalDefId, DefId}, itemlikevisit::ItemLikeVisitor, ForeignItem, ImplItem, ImplItemKind, Item,
-    ItemKind, TraitItem,
+    def_id::LocalDefId, itemlikevisit::ItemLikeVisitor, ForeignItem, ImplItem, ImplItemKind, Item,
+    ItemKind, TraitItem, intravisit,
 };
 use rustc_middle::ty::TyCtxt;
 use rustc_session::Session;
 use rustc_span::Span;
 
-pub(crate) struct DefCollector<'tcx, 'a> {
-    tcx: TyCtxt<'tcx>,
-    defs: Vec<DefId>,
-    sess: &'a Session,
-    error_reported: bool,
-}
-
-impl<'tcx, 'a> DefCollector<'tcx, 'a> {
-    pub(crate) fn collect(
-        tcx: TyCtxt<'tcx>, 
-        sess:&'a Session
-    ) -> Result<Vec<DefId>, ErrorReported> {
-        let mut collector = Self {
-            tcx,
-            sess,
-            defs: vec!(),
-            error_reported: false,
-        };
-
-        tcx.hir().visit_all_item_likes(&mut collector);
-
-        if collector.error_reported {
-            Err(ErrorReported)
-        } else {
-            Ok(collector.defs)
-        }
-    }
-
-    fn gather_def_ids(body: &Body) -> Vec<DefId> {
-        let mut res = vec!();
-        for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
-            if let Some(term) = &bb_data.terminator {
-                match term.kind {
-                    TerminatorKind::Call{ func, .. } => res.push(func),
-                    _ => ()
-                }
-            }
-        };
-        res
-    }
-
-    fn collect_def_ids(&mut self, hir_id: rustc_hir::HirId, def_id: LocalDefId) {
-
-    }
+#[derive(Debug)]
+pub enum LrSpec {
+    Assume,
+    Assert(FnSig),
 }
 
 pub(crate) struct SpecCollector<'tcx, 'a> {
@@ -61,12 +21,15 @@ pub(crate) struct SpecCollector<'tcx, 'a> {
     specs: FxHashMap<LocalDefId, FnSpec>,
     sess: &'a Session,
     error_reported: bool,
+    fun_defs: FxHashMap<Ident, LocalDefId>,
 }
 
 pub struct FnSpec {
     pub fn_sig: FnSig,
     pub assume: bool,
 }
+
+
 
 impl<'tcx, 'a> SpecCollector<'tcx, 'a> {
     pub(crate) fn collect(
@@ -78,9 +41,12 @@ impl<'tcx, 'a> SpecCollector<'tcx, 'a> {
             sess,
             specs: FxHashMap::default(),
             error_reported: false,
+            fun_defs: FxHashMap::default(),
         };
 
         tcx.hir().visit_all_item_likes(&mut collector);
+
+        tcx.hir().walk_attributes(&mut collector);
 
         if collector.error_reported {
             Err(ErrorReported)
@@ -89,34 +55,55 @@ impl<'tcx, 'a> SpecCollector<'tcx, 'a> {
         }
     }
 
+    fn parse_attribute(&mut self, attribute: &Attribute) -> Option<LrSpec> {
+        if let AttrKind::Normal(attr_item, ..) = &attribute.kind {
+            // Be sure we are in a `liquid` attribute.
+            let segments = match attr_item.path.segments.as_slice() {
+                [first, segments @ ..] if first.ident.as_str() == "lr" => segments,
+                _ => return None
+            };
+
+            match segments {
+                [second] if &*second.ident.as_str() == "ty" => {
+                    if let MacArgs::Delimited(span, _, tokens) = &attr_item.args {
+                        if let Some(fn_sig) = self.parse_fn_annot(tokens.clone(), span.entire()) { 
+                            return Some(LrSpec::Assert(fn_sig));
+                        } else {
+                            return None
+                        }
+                    } else {
+                        self.emit_error("invalid liquid annotation.", attr_item.span());
+                        return None
+                    }
+                }
+                [second] if &*second.ident.as_str() == "assume" => {
+                    return Some(LrSpec::Assume);
+                }
+                _ => {
+                    self.emit_error("invalid liquid annotation.", attr_item.span());
+                    return None;
+                }
+            }
+        } else { 
+            return None;
+        }
+    }
+
+
     fn parse_annotations(&mut self, def_id: LocalDefId, attributes: &[Attribute]) {
         let mut fn_sig = None;
         let mut assume = false;
         for attribute in attributes {
-            if let AttrKind::Normal(attr_item, ..) = &attribute.kind {
-                // Be sure we are in a `liquid` attribute.
-                let segments = match attr_item.path.segments.as_slice() {
-                    [first, segments @ ..] if first.ident.as_str() == "lr" => segments,
-                    _ => continue,
-                };
-
-                match segments {
-                    [second] if &*second.ident.as_str() == "ty" => {
+            if let Some(spec) = self.parse_attribute(attribute) {
+                match spec {
+                    LrSpec::Assert(sig) => {
                         if fn_sig.is_some() {
-                            self.emit_error("duplicated function signature.", attr_item.span());
+                            self.emit_error("duplicated function signature.", sig.span);
                             return;
-                        }
-
-                        if let MacArgs::Delimited(span, _, tokens) = &attr_item.args {
-                            fn_sig = self.parse_fn_annot(tokens.clone(), span.entire());
-                        } else {
-                            self.emit_error("invalid liquid annotation.", attr_item.span())
-                        }
-                    }
-                    [second] if &*second.ident.as_str() == "assume" => {
-                        assume = true;
-                    }
-                    _ => self.emit_error("invalid liquid annotation.", attr_item.span()),
+                        } 
+                        fn_sig = Some(sig) 
+                    },
+                    LrSpec::Assume => assume = true,
                 }
             }
         }
@@ -151,36 +138,29 @@ impl<'tcx, 'a> SpecCollector<'tcx, 'a> {
         self.parse_annotations(def_id, attrs);
     }
 
-
-}
-
-impl<'hir> ItemLikeVisitor<'hir> for DefCollector<'_, '_> {
-    fn visit_item(&mut self, item: &'hir Item<'hir>) {
-        if let ItemKind::Fn(..) = item.kind {
-            self.collect_def_ids(item.hir_id(), item.def_id);
-        }
+    fn def_id_to_ident(&self, def_id: LocalDefId) -> Ident {
+        let str = self.tcx.def_path_str(def_id.to_def_id());
+        // println!("def_id_to_ident {:?} as string = {}", def_id, str);
+        Ident::from_str(&str)
     }
 
-    fn visit_impl_item(&mut self, item: &'hir ImplItem<'hir>) {
-        if let ImplItemKind::Fn(..) = &item.kind {
-            self.collect_def_ids(item.hir_id(), item.def_id);
-        }
+    fn insert_fun_def(&mut self, def_id:LocalDefId) {
+        let ident = self.def_id_to_ident(def_id);
+        self.fun_defs.insert(ident, def_id);
     }
-
-    fn visit_trait_item(&mut self, _trait_item: &'hir TraitItem<'hir>) {}
-
-    fn visit_foreign_item(&mut self, _foreign_item: &'hir ForeignItem<'hir>) {}
 }
 
 impl<'hir> ItemLikeVisitor<'hir> for SpecCollector<'_, '_> {
     fn visit_item(&mut self, item: &'hir Item<'hir>) {
         if let ItemKind::Fn(..) = item.kind {
+            self.insert_fun_def(item.def_id);
             self.parse_annotations_fun(item.hir_id(), item.def_id);
         }
     }
 
     fn visit_impl_item(&mut self, item: &'hir ImplItem<'hir>) {
         if let ImplItemKind::Fn(..) = &item.kind {
+            self.insert_fun_def(item.def_id);
             self.parse_annotations_fun(item.hir_id(), item.def_id);
         }
     }
@@ -188,4 +168,23 @@ impl<'hir> ItemLikeVisitor<'hir> for SpecCollector<'_, '_> {
     fn visit_trait_item(&mut self, _trait_item: &'hir TraitItem<'hir>) {}
     
     fn visit_foreign_item(&mut self, _foreign_item: &'hir ForeignItem<'hir>) {}
+}
+
+
+impl<'tcx> intravisit::Visitor<'tcx> for SpecCollector<'tcx, '_> {
+    type Map = rustc_middle::hir::map::Map<'tcx>;
+
+    fn visit_attribute(&mut self, _: rustc_hir::HirId, attr: &'tcx Attribute) {
+        if let Some(LrSpec::Assert(sig)) =  self.parse_attribute(attr) {
+            if let Some(ident) = sig.name {
+                if let Some(def_id) = self.fun_defs.get(&ident) {
+                    self.specs.insert(*def_id, FnSpec { fn_sig: sig, assume : true });
+                }
+            }
+        }
+    }
+
+    fn nested_visit_map(&mut self) -> intravisit::NestedVisitorMap<Self::Map> {
+        intravisit::NestedVisitorMap::All(self.tcx.hir())
+    }
 }
